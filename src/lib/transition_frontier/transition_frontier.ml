@@ -378,36 +378,39 @@ struct
    *)
   let add_breadcrumb_exn t breadcrumb =
     O1trace.measure "add_breadcrumb" (fun () ->
-    let hash = With_hash.hash (Breadcrumb.transition_with_hash breadcrumb) in
-    let root_node = Hashtbl.find_exn t.table t.root in
-    let best_tip_node = Hashtbl.find_exn t.table t.best_tip in
-    (* 1 *)
-    attach_breadcrumb_exn t breadcrumb ;
-    let node = Hashtbl.find_exn t.table hash in
-    (* 2.a *)
-    let distance_to_parent = node.length - root_node.length in
-    (* 2.b *)
-    if distance_to_parent > max_length t then (
-      (* 2.b.I *)
-      let new_root_hash = List.hd_exn (hash_path t node.breadcrumb) in
-      (* 2.b.II *)
-      let garbage_immediate_successors =
-        List.filter root_node.successor_hashes ~f:(fun succ_hash ->
-            not (State_hash.equal succ_hash new_root_hash) )
-      in
-      (* 2.b.III *)
-      let garbage =
-        t.root
-        :: List.bind garbage_immediate_successors ~f:(successor_hashes_rec t)
-      in
-      t.root <- new_root_hash ;
-      List.iter garbage ~f:(Hashtbl.remove t.table) ;
-      (* 2.b.IV *)
-      Ledger.Mask.Attached.commit
-        (Inputs.Staged_ledger.ledger
-           (Breadcrumb.staged_ledger root_node.breadcrumb)) ) ;
-    (* 3 *)
-    if node.length > best_tip_node.length then t.best_tip <- hash )
+        let hash =
+          With_hash.hash (Breadcrumb.transition_with_hash breadcrumb)
+        in
+        let root_node = Hashtbl.find_exn t.table t.root in
+        let best_tip_node = Hashtbl.find_exn t.table t.best_tip in
+        (* 1 *)
+        attach_breadcrumb_exn t breadcrumb ;
+        let node = Hashtbl.find_exn t.table hash in
+        (* 2.a *)
+        let distance_to_parent = node.length - root_node.length in
+        (* 2.b *)
+        if distance_to_parent > max_length t then (
+          (* 2.b.I *)
+          let new_root_hash = List.hd_exn (hash_path t node.breadcrumb) in
+          (* 2.b.II *)
+          let garbage_immediate_successors =
+            List.filter root_node.successor_hashes ~f:(fun succ_hash ->
+                not (State_hash.equal succ_hash new_root_hash) )
+          in
+          (* 2.b.III *)
+          let garbage =
+            t.root
+            :: List.bind garbage_immediate_successors
+                 ~f:(successor_hashes_rec t)
+          in
+          t.root <- new_root_hash ;
+          List.iter garbage ~f:(Hashtbl.remove t.table) ;
+          (* 2.b.IV *)
+          Ledger.Mask.Attached.commit
+            (Inputs.Staged_ledger.ledger
+               (Breadcrumb.staged_ledger root_node.breadcrumb)) ) ;
+        (* 3 *)
+        if node.length > best_tip_node.length then t.best_tip <- hash )
 
   let clear_paths t = Hashtbl.clear t.table
 
