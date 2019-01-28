@@ -35,6 +35,15 @@ module Bootstrap_controller = Bootstrap_controller.Make (struct
   module Protocol_state_validator = Protocol_state_validator
 end)
 
+let get_transition_frontier_info frontier =
+  Transition_frontier.(
+    all_breadcrumbs frontier
+    |> List.map ~f:(fun breadcrumb ->
+           ( breadcrumb |> Breadcrumb.staged_ledger |> Staged_ledger.ledger
+             |> Ledger.merkle_root
+           , breadcrumb |> Breadcrumb.transition_with_hash |> With_hash.hash )
+       ))
+
 let%test_module "Bootstrap Controller" =
   ( module struct
     let%test "sync with one node correctly" =
@@ -59,6 +68,15 @@ let%test_module "Bootstrap Controller" =
           let best_tip_length =
             Transition_frontier.best_tip_path_length_exn peer_frontier
           in
+          Logger.info logger
+            !"=======Printing out Peer's transition frontier=========" ;
+          List.iter (get_transition_frontier_info peer_frontier)
+            ~f:(fun (ledger_hash, state_hash) ->
+              Logger.info logger
+                !"Peer's transition frontier breadcrumbs: (Ledger_hash: \
+                  %{sexp:Ledger_hash.t}, State_hash: %{sexp:State_hash.t})"
+                ledger_hash state_hash ) ;
+          Logger.info logger !"=======Finish printing frontier=========" ;
           assert (best_tip_length = max_length) ;
           let network = Network.create ~logger in
           let open Transition_frontier.For_tests in
@@ -104,8 +122,8 @@ let%test_module "Bootstrap Controller" =
           in
           (* TODO: Need to hook sync_ledger responder to network and make sure it works #1510. *)
           (* The comment code below will not progess if #1510 is not resolved *)
-          Deferred.return true
-          (* let%map newly_syncing_frontier = Root_sync_ledger.valid_tree root_sync_ledger
+          let%map newly_syncing_frontier =
+            Root_sync_ledger.valid_tree root_sync_ledger
           in
           let root_hash =
             Fn.compose Ledger.Db.merkle_root root_snarked_ledger
@@ -114,6 +132,5 @@ let%test_module "Bootstrap Controller" =
           Ledger_hash.equal syncing_frontier_root_hash
             (Ledger.Db.merkle_root newly_syncing_frontier)
           && Ledger_hash.equal syncing_frontier_root_hash
-               (root_hash peer_frontier)  *)
-      )
+               (root_hash peer_frontier) )
   end )

@@ -37,13 +37,17 @@ module Make (Inputs : Inputs_intf) :
           Some ledger
         else None )
 
+  (* TODO: maybe create a test for this *)
+
   let answer_query ~frontier hash query =
     let open Option.Let_syntax in
     let%map ledger = get_ledger_by_hash ~frontier hash in
+    Core.printf !"\n\nGot ledger %{sexp:Ledger_hash.t}\n\n " hash ;
     let responder = Sync_ledger.Responder.create ledger ignore in
     let answer = Sync_ledger.Responder.answer_query responder query in
     (hash, answer)
 
+  (* TODO: make this more optimized *)
   let prove_ancestry ~frontier generations descendant =
     let open Option.Let_syntax in
     let rec create_proof acc iter_traversal state_hash =
@@ -54,6 +58,21 @@ module Make (Inputs : Inputs_intf) :
           Transition_frontier.Breadcrumb.transition_with_hash breadcrumb
         in
         let external_transition = With_hash.data transition_with_hash in
+        Core.printf
+          !"\n\n\
+            Creating Ancestry Proof for breadcrumb: (\n\
+            Ledger_hash 1: %{sexp:Ledger_hash.t},\n\
+            Ledger_hash 2: %{sexp:Ledger_hash.t},\n\
+            State_hash: %{sexp:State_hash.t})\n\n"
+          Consensus.Mechanism.(
+            Protocol_state.blockchain_state
+              (External_transition.Verified.protocol_state external_transition)
+            |> Blockchain_state.ledger_hash
+            |> Frozen_ledger_hash.to_ledger_hash)
+          Transition_frontier.(
+            breadcrumb |> Breadcrumb.staged_ledger |> Staged_ledger.ledger
+            |> Ledger.merkle_root)
+          state_hash ;
         let protocol_state =
           External_transition.Verified.protocol_state external_transition
         in
@@ -67,9 +86,9 @@ module Make (Inputs : Inputs_intf) :
         create_proof (state_body_hash :: acc) (iter_traversal - 1)
           previous_state_hash
     in
-    let%bind state_hash, proof = create_proof [] generations descendant in
+    let%bind root_state_hash, proof = create_proof [] generations descendant in
     let%map transition_with_hash =
-      Transition_frontier.find frontier state_hash
+      Transition_frontier.find frontier root_state_hash
     in
     let external_transition =
       transition_with_hash

@@ -221,8 +221,8 @@ let gen_breadcrumb ~logger :
         ~transactions_by_fee:transactions ~get_completed_work
     in
     let%bind ( `Hash_after_applying next_staged_ledger_hash
-             , `Ledger_proof ledger_proof_opt
-             , `Staged_ledger _ ) =
+             , `Ledger_proof _ledger_proof_opt
+             , `Staged_ledger staged_ledger ) =
       Staged_ledger.apply_diff_unchecked parent_staged_ledger
         staged_ledger_diff
       |> Deferred.Or_error.ok_exn
@@ -238,12 +238,17 @@ let gen_breadcrumb ~logger :
       previous_protocol_state |> Protocol_state.blockchain_state
       |> Protocol_state.Blockchain_state.ledger_hash
     in
+    (* TODO: another way to compute next_ledger_hash is the commented code down below. Check to see if they are suppose to be the same  *)
     let next_ledger_hash =
+      staged_ledger |> Staged_ledger.ledger |> Ledger.merkle_root
+      |> Frozen_ledger_hash.of_ledger_hash
+    in
+    (* let next_ledger_hash =
       Option.value_map ledger_proof_opt
         ~f:(fun proof ->
           Ledger_proof.statement proof |> Ledger_proof.statement_target )
         ~default:previous_ledger_hash
-    in
+    in *)
     let next_blockchain_state =
       Blockchain_state.create_value ~timestamp:(Block_time.now ())
         ~ledger_hash:next_ledger_hash
@@ -377,32 +382,32 @@ module Network = struct
     Pipe_lib.Linear_pipe.iter_unordered ~max_concurrency:8 query_reader
       ~f:(fun (ledger_hash, sync_ledger_query) ->
         Logger.info logger
-          !"Processing ledger query : %{sexp:(Ledger.Addr.t \
-            Syncable_ledger.query)}"
-          sync_ledger_query ;
+          !"Processing ledger query %{sexp:Sync_ledger.query} for ledger_hash \
+            %{sexp:Ledger_hash.t}"
+          sync_ledger_query ledger_hash ;
         let answer =
           Hashtbl.to_alist table
           |> List.find_map ~f:(fun (peer, frontier) ->
-                 let open Option.Let_syntax in
-                 let%map answer =
+                 let answer =
                    Sync_handler.answer_query ~frontier ledger_hash
                      sync_ledger_query
                  in
-                 Envelope.Incoming.wrap ~data:answer
-                   ~sender:(Kademlia.Peer.to_discovery_host_and_port peer) )
+                 if Option.is_none answer then
+                   Logger.info logger
+                     !"Peer %{sexp:Kademlia.Peer.t} does not have answer for \
+                       %{sexp:Sync_ledger.query} "
+                     peer sync_ledger_query ;
+                 Option.map answer ~f:(fun answer ->
+                     Envelope.Incoming.wrap ~data:answer
+                       ~sender:(Kademlia.Peer.to_discovery_host_and_port peer)
+                 ) )
         in
-        match answer with
-        | None ->
-            Logger.info logger
-              !"Could not find an answer for : %{sexp:(Ledger.Addr.t \
-                Syncable_ledger.query)}"
-              sync_ledger_query ;
-            Deferred.unit
-        | Some answer ->
-            Logger.info logger
-              !"Found an answer for : %{sexp:(Ledger.Addr.t \
-                Syncable_ledger.query)}"
-              sync_ledger_query ;
-            Pipe_lib.Linear_pipe.write response_writer answer )
+        Option.value_exn
+          ~error:
+            (Error.createf
+               !"Could not find an answer for : %{sexp:(Sync_ledger.query)}"
+               sync_ledger_query)
+          answer
+        |> Pipe_lib.Linear_pipe.write response_writer )
     |> don't_wait_for
 end

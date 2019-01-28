@@ -209,6 +209,9 @@ end = struct
                   |> Blockchain_state.ledger_hash
                   |> Frozen_ledger_hash.to_ledger_hash)
               in
+              Logger.info t.logger
+                !"Ledger hash: %{sexp:Ledger_hash.t}"
+                ledger_hash ;
               Root_sync_ledger.new_goal root_sync_ledger ledger_hash |> ignore
           | Error e -> received_bad_proof t e )
 
