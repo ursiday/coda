@@ -7,4 +7,5 @@ test.log
 build.log
 src/config.mlh
 src/external/ocaml-rocksdb/rocksdb
-
+*\.DS_Store
+src/app/website/deploy/.firebase
